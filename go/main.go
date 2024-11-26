@@ -1475,8 +1475,20 @@ func (h *handlers) AddAnnouncement(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	for _, user := range targets {
-		if _, err := tx.Exec("INSERT INTO `unread_announcements` (`announcement_id`, `user_id`) VALUES (?, ?)", req.ID, user.ID); err != nil {
+	insertQuery := "INSERT INTO `unread_announcements` (`announcement_id`, `user_id`) VALUES (:announcement_id, :user_id)"
+	var insertArgs []struct {
+		AnnouncementID string `db:"announcement_id"`
+		UserID         string `db:"user_id"`
+	}
+	for _, target := range targets {
+		insertArgs = append(insertArgs, struct {
+			AnnouncementID string `db:"announcement_id"`
+			UserID         string `db:"user_id"`
+		}{AnnouncementID: req.ID, UserID: target.ID})
+	}
+
+	if len(insertArgs) > 0 {
+		if _, err := tx.NamedExec(insertQuery, insertArgs); err != nil {
 			c.Logger().Error(err)
 			return c.NoContent(http.StatusInternalServerError)
 		}
