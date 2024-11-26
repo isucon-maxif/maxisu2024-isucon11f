@@ -6,7 +6,7 @@ ifeq ($(SERVER),)
     $(error SERVER env is not set)
 endif
 
-NGINX_ACCESS_LOG:=/var/log/nginx/access.log
+NGINX_ACCESS_LOG:=/var/log/nginx/access.ndjson
 NGINX_CONF:=/etc/nginx
 
 MYSQL_SLOW_LOG:=/var/log/mysql/mysql-slow.log
