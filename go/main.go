@@ -663,16 +663,17 @@ func (h *handlers) GetGrades(c echo.Context) error {
 	}
 
 	// submissions を全件取得
-	query, args, err = sqlx.In("SELECT * FROM `submissions`.`class_id` `submissions`.`score`  WHERE `class_id` IN (?)", classIDs)
+	query, args, err = sqlx.In("SELECT * FROM `submissions` WHERE `class_id` IN (?)", classIDs)
 	if err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	type Subs struct {
-		UserID  string        `db:"user_id"`
-		ClassID string        `db:"class_id"`
-		Score   sql.NullInt64 `db:"score"`
+		UserID   string        `db:"user_id"`
+		ClassID  string        `db:"class_id"`
+		FileName string        `db:"file_name"`
+		Score    sql.NullInt64 `db:"score"`
 	}
 
 	var allSubmissions []Subs
