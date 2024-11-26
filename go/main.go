@@ -1487,9 +1487,11 @@ func (h *handlers) AddAnnouncement(c echo.Context) error {
 		}{AnnouncementID: req.ID, UserID: target.ID})
 	}
 
-	if _, err := tx.NamedExec(insertQuery, insertArgs); err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
+	if len(insertArgs) > 0 {
+		if _, err := tx.NamedExec(insertQuery, insertArgs); err != nil {
+			c.Logger().Error(err)
+			return c.NoContent(http.StatusInternalServerError)
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
