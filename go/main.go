@@ -388,14 +388,32 @@ func (h *handlers) GetRegisteredCourses(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
+	teacherIDs := make([]string, 0, len(courses))
+	for _, course := range courses {
+		teacherIDs = append(teacherIDs, course.TeacherID)
+	}
+	query, args, err := sqlx.In("SELECT * FROM `users` WHERE `id` IN (?)", teacherIDs)
+	if err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	query = tx.Rebind(query)
+
+	var teachers []User
+	if err := tx.Get(&teachers, query, args...); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	teacherIDToUser := make(map[string]User)
+	for _, teacher := range teachers {
+		teacherIDToUser[teacher.ID] = teacher
+	}
+
 	// 履修科目が0件の時は空配列を返却
 	res := make([]GetRegisteredCourseResponseContent, 0, len(courses))
 	for _, course := range courses {
-		var teacher User
-		if err := tx.Get(&teacher, "SELECT * FROM `users` WHERE `id` = ?", course.TeacherID); err != nil {
-			c.Logger().Error(err)
-			return c.NoContent(http.StatusInternalServerError)
-		}
+		teacher := teacherIDToUser[course.TeacherID]
 
 		res = append(res, GetRegisteredCourseResponseContent{
 			ID:        course.ID,
@@ -492,31 +510,6 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 	}
 
 	for _, courseReq := range req {
-		// courseID := courseReq.ID
-		// var course Course
-		// if err := tx.Get(&course, "SELECT * FROM `courses` WHERE `id` = ? FOR SHARE", courseID); err != nil && err != sql.ErrNoRows {
-		// 	c.Logger().Error(err)
-		// 	return c.NoContent(http.StatusInternalServerError)
-		// } else if err == sql.ErrNoRows {
-		// 	errors.CourseNotFound = append(errors.CourseNotFound, courseReq.ID)
-		// 	continue
-		// }
-		//
-		// if course.Status != StatusRegistration {
-		// 	errors.NotRegistrableStatus = append(errors.NotRegistrableStatus, course.ID)
-		// 	continue
-		// }
-		//
-		// // すでに履修登録済みの科目は無視する
-		// var count int
-		// if err := tx.Get(&count, "SELECT COUNT(*) FROM `registrations` WHERE `course_id` = ? AND `user_id` = ?", course.ID, userID); err != nil {
-		// 	c.Logger().Error(err)
-		// 	return c.NoContent(http.StatusInternalServerError)
-		// }
-		// if count > 0 {
-		// 	continue
-		// }
-
 		course, exists := courseMap[courseReq.ID]
 		if !exists {
 			errors.CourseNotFound = append(errors.CourseNotFound, courseReq.ID)
@@ -704,11 +697,6 @@ func (h *handlers) GetGrades(c echo.Context) error {
 		classScores := make([]ClassScore, 0, len(classes))
 		var myTotalScore int
 		for _, class := range classes {
-			// var submissionsCount int
-			// if err := h.DB.Get(&submissionsCount, "SELECT COUNT(*) FROM `submissions` WHERE `class_id` = ?", class.ID); err != nil {
-			// 	c.Logger().Error(err)
-			// 	return c.NoContent(http.StatusInternalServerError)
-			// }
 			submissionsCount := submissionsCounts[class.ID]
 
 			myScore, exists := submissionsScoreMap[class.ID]
@@ -731,30 +719,6 @@ func (h *handlers) GetGrades(c echo.Context) error {
 					Submitters: submissionsCount,
 				})
 			}
-
-			// var myScore sql.NullInt64
-			// if err := h.DB.Get(&myScore, "SELECT `submissions`.`score` FROM `submissions` WHERE `user_id` = ? AND `class_id` = ?", userID, class.ID); err != nil && err != sql.ErrNoRows {
-			// 	c.Logger().Error(err)
-			// 	return c.NoContent(http.StatusInternalServerError)
-			// } else if err == sql.ErrNoRows || !myScore.Valid {
-			// 	classScores = append(classScores, ClassScore{
-			// 		ClassID:    class.ID,
-			// 		Part:       class.Part,
-			// 		Title:      class.Title,
-			// 		Score:      nil,
-			// 		Submitters: submissionsCount,
-			// 	})
-			// } else {
-			// 	score := int(myScore.Int64)
-			// 	myTotalScore += score
-			// 	classScores = append(classScores, ClassScore{
-			// 		ClassID:    class.ID,
-			// 		Part:       class.Part,
-			// 		Title:      class.Title,
-			// 		Score:      &score,
-			// 		Submitters: submissionsCount,
-			// 	})
-			// }
 		}
 
 		// この科目を履修している学生のTotalScore一覧を取得
