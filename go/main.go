@@ -1475,17 +1475,19 @@ func (h *handlers) AddAnnouncement(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	insertQuery := "INSERT INTO `unread_announcements` (`announcement_id`, `user_id`) VALUES"
-	var insertArgs []interface{}
-	for i, target := range targets {
-		insertQuery += " (?, ?)"
-		insertArgs = append(insertArgs, req.ID, target.ID)
-		if i != len(targets)-1 {
-			insertQuery += ","
-		}
+	insertQuery := "INSERT INTO `unread_announcements` (`announcement_id`, `user_id`) VALUES (:announcement_id, :user_id)"
+	var insertArgs []struct {
+		AnnouncementID string `db:"announcement_id"`
+		UserID         string `db:"user_id"`
+	}
+	for _, target := range targets {
+		insertArgs = append(insertArgs, struct {
+			AnnouncementID string `db:"announcement_id"`
+			UserID         string `db:"user_id"`
+		}{AnnouncementID: req.ID, UserID: target.ID})
 	}
 
-	if _, err := tx.Exec(insertQuery, insertArgs...); err != nil {
+	if _, err := tx.NamedExec(insertQuery, insertArgs); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
