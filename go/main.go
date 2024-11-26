@@ -23,6 +23,7 @@ import (
 	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/zemirco/memorystore"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -51,7 +52,7 @@ func main() {
 
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
-	e.Use(session.Middleware(sessions.NewCookieStore([]byte("trapnomura"))))
+	e.Use(session.Middleware(memorystore.NewMemoryStore()))
 
 	db, _ := GetDB(false)
 	db.SetMaxOpenConns(100)
