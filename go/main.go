@@ -388,14 +388,32 @@ func (h *handlers) GetRegisteredCourses(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
+	teacherIDs := make([]string, 0, len(courses))
+	for _, course := range courses {
+		teacherIDs = append(teacherIDs, course.TeacherID)
+	}
+	query, args, err := sqlx.In("SELECT * FROM `users` WHERE `id` = (?)", teacherIDs)
+	if err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	query = tx.Rebind(query)
+
+	var teachers []User
+	if err := tx.Get(&teachers, query, args...); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	teacherIDToUser := make(map[string]User)
+	for _, teacher := range teachers {
+		teacherIDToUser[teacher.ID] = teacher
+	}
+
 	// 履修科目が0件の時は空配列を返却
 	res := make([]GetRegisteredCourseResponseContent, 0, len(courses))
 	for _, course := range courses {
-		var teacher User
-		if err := tx.Get(&teacher, "SELECT * FROM `users` WHERE `id` = ?", course.TeacherID); err != nil {
-			c.Logger().Error(err)
-			return c.NoContent(http.StatusInternalServerError)
-		}
+		teacher := teacherIDToUser[course.TeacherID]
 
 		res = append(res, GetRegisteredCourseResponseContent{
 			ID:        course.ID,
