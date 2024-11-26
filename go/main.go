@@ -392,7 +392,7 @@ func (h *handlers) GetRegisteredCourses(c echo.Context) error {
 	for _, course := range courses {
 		teacherIDs = append(teacherIDs, course.TeacherID)
 	}
-	query, args, err := sqlx.In("SELECT * FROM `users` WHERE `id` = (?)", teacherIDs)
+	query, args, err := sqlx.In("SELECT * FROM `users` WHERE `id` IN (?)", teacherIDs)
 	if err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
