@@ -5,12 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -22,7 +20,6 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -39,18 +36,10 @@ type handlers struct {
 }
 
 func main() {
-	runtime.SetBlockProfileRate(1)
-	runtime.SetMutexProfileFraction(1)
-	go func() {
-		log.Println(http.ListenAndServe("0.0.0.0:6060", nil))
-	}()
 	e := echo.New()
-	e.Debug = GetEnv("DEBUG", "") == "true"
 	e.Server.Addr = fmt.Sprintf("0.0.0.0:%v", GetEnv("PORT", "7000"))
 	e.HideBanner = true
 
-	e.Use(middleware.Logger())
-	e.Use(middleware.Recover())
 	e.Use(session.Middleware(sessions.NewCookieStore([]byte("trapnomura"))))
 
 	db, _ := GetDB(false)
@@ -112,21 +101,21 @@ func (h *handlers) Initialize(c echo.Context) error {
 	for _, file := range files {
 		data, err := os.ReadFile(SQLDirectory + file)
 		if err != nil {
-			c.Logger().Error(err)
+
 			return c.NoContent(http.StatusInternalServerError)
 		}
 		if _, err := dbForInit.Exec(string(data)); err != nil {
-			c.Logger().Error(err)
+
 			return c.NoContent(http.StatusInternalServerError)
 		}
 	}
 
 	if err := exec.Command("rm", "-rf", AssignmentsDirectory).Run(); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	if err := exec.Command("cp", "-r", InitDataDirectory, AssignmentsDirectory).Run(); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -141,7 +130,7 @@ func (h *handlers) IsLoggedIn(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		sess, err := session.Get(SessionName, c)
 		if err != nil {
-			c.Logger().Error(err)
+
 			return c.NoContent(http.StatusInternalServerError)
 		}
 		if sess.IsNew {
@@ -161,12 +150,12 @@ func (h *handlers) IsAdmin(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		sess, err := session.Get(SessionName, c)
 		if err != nil {
-			c.Logger().Error(err)
+
 			return c.NoContent(http.StatusInternalServerError)
 		}
 		isAdmin, ok := sess.Values["isAdmin"]
 		if !ok {
-			c.Logger().Error("failed to get isAdmin from session")
+
 			return c.NoContent(http.StatusInternalServerError)
 		}
 		if !isAdmin.(bool) {
@@ -269,7 +258,7 @@ func (h *handlers) Login(c echo.Context) error {
 
 	var user User
 	if err := h.DB.Get(&user, "SELECT * FROM `users` WHERE `code` = ?", req.Code); err != nil && err != sql.ErrNoRows {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	} else if err == sql.ErrNoRows {
 		return c.String(http.StatusUnauthorized, "Code or Password is wrong.")
@@ -281,7 +270,7 @@ func (h *handlers) Login(c echo.Context) error {
 
 	sess, err := session.Get(SessionName, c)
 	if err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -298,7 +287,7 @@ func (h *handlers) Login(c echo.Context) error {
 	}
 
 	if err := sess.Save(c.Request(), c.Response()); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -309,7 +298,7 @@ func (h *handlers) Login(c echo.Context) error {
 func (h *handlers) Logout(c echo.Context) error {
 	sess, err := session.Get(SessionName, c)
 	if err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -319,7 +308,7 @@ func (h *handlers) Logout(c echo.Context) error {
 	}
 
 	if err := sess.Save(c.Request(), c.Response()); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -338,13 +327,13 @@ type GetMeResponse struct {
 func (h *handlers) GetMe(c echo.Context) error {
 	userID, userName, isAdmin, err := getUserInfo(c)
 	if err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	var userCode string
 	if err := h.DB.Get(&userCode, "SELECT `code` FROM `users` WHERE `id` = ?", userID); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -367,13 +356,13 @@ type GetRegisteredCourseResponseContent struct {
 func (h *handlers) GetRegisteredCourses(c echo.Context) error {
 	userID, _, _, err := getUserInfo(c)
 	if err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	tx, err := h.DB.Beginx()
 	if err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	defer tx.Rollback()
@@ -384,7 +373,7 @@ func (h *handlers) GetRegisteredCourses(c echo.Context) error {
 		" JOIN `registrations` ON `courses`.`id` = `registrations`.`course_id`" +
 		" WHERE `courses`.`status` != ? AND `registrations`.`user_id` = ?"
 	if err := tx.Select(&courses, query, StatusClosed, userID); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -393,7 +382,7 @@ func (h *handlers) GetRegisteredCourses(c echo.Context) error {
 	for _, course := range courses {
 		var teacher User
 		if err := tx.Get(&teacher, "SELECT * FROM `users` WHERE `id` = ?", course.TeacherID); err != nil {
-			c.Logger().Error(err)
+
 			return c.NoContent(http.StatusInternalServerError)
 		}
 
@@ -407,7 +396,7 @@ func (h *handlers) GetRegisteredCourses(c echo.Context) error {
 	}
 
 	if err := tx.Commit(); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -428,7 +417,7 @@ type RegisterCoursesErrorResponse struct {
 func (h *handlers) RegisterCourses(c echo.Context) error {
 	userID, _, _, err := getUserInfo(c)
 	if err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -442,7 +431,7 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 
 	tx, err := h.DB.Beginx()
 	if err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	defer tx.Rollback()
@@ -455,12 +444,12 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 	var courses []Course
 	query, args, err := sqlx.In("SELECT * FROM `courses` WHERE `id` IN (?) FOR SHARE", courseIDs)
 	if err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	query = tx.Rebind(query)
 	if err := tx.Select(&courses, query, args...); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -469,12 +458,12 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 	}
 	query, args, err = sqlx.In("SELECT `course_id` FROM `registrations` WHERE `course_id` IN (?) AND `user_id` = ?", courseIDs, userID)
 	if err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	query = tx.Rebind(query)
 	if err := tx.Select(&existingRegistrations, query, args...); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -495,7 +484,7 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 		// courseID := courseReq.ID
 		// var course Course
 		// if err := tx.Get(&course, "SELECT * FROM `courses` WHERE `id` = ? FOR SHARE", courseID); err != nil && err != sql.ErrNoRows {
-		// 	c.Logger().Error(err)
+
 		// 	return c.NoContent(http.StatusInternalServerError)
 		// } else if err == sql.ErrNoRows {
 		// 	errors.CourseNotFound = append(errors.CourseNotFound, courseReq.ID)
@@ -510,7 +499,7 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 		// // すでに履修登録済みの科目は無視する
 		// var count int
 		// if err := tx.Get(&count, "SELECT COUNT(*) FROM `registrations` WHERE `course_id` = ? AND `user_id` = ?", course.ID, userID); err != nil {
-		// 	c.Logger().Error(err)
+
 		// 	return c.NoContent(http.StatusInternalServerError)
 		// }
 		// if count > 0 {
@@ -541,7 +530,7 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 		" JOIN `registrations` ON `courses`.`id` = `registrations`.`course_id`" +
 		" WHERE `courses`.`status` != ? AND `registrations`.`user_id` = ?"
 	if err := tx.Select(&alreadyRegistered, query, StatusClosed, userID); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -562,13 +551,13 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 	for _, course := range newlyAdded {
 		_, err = tx.Exec("INSERT INTO `registrations` (`course_id`, `user_id`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `course_id` = VALUES(`course_id`), `user_id` = VALUES(`user_id`)", course.ID, userID)
 		if err != nil {
-			c.Logger().Error(err)
+
 			return c.NoContent(http.StatusInternalServerError)
 		}
 	}
 
 	if err = tx.Commit(); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -621,7 +610,7 @@ type ClassScore struct {
 func (h *handlers) GetGrades(c echo.Context) error {
 	userID, _, _, err := getUserInfo(c)
 	if err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -632,7 +621,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 		" JOIN `courses` ON `registrations`.`course_id` = `courses`.`id`" +
 		" WHERE `user_id` = ?"
 	if err := h.DB.Select(&registeredCourses, query, userID); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -643,14 +632,14 @@ func (h *handlers) GetGrades(c echo.Context) error {
 
 	query, args, err := sqlx.In("SELECT * FROM `classes` WHERE `course_id` IN (?) ORDER BY `part` DESC", courseIDs)
 	if err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	var allClasses []Class
 	query = h.DB.Rebind(query)
 	if err := h.DB.Select(&allClasses, query, args...); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -665,7 +654,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 	// submissions を全件取得
 	query, args, err = sqlx.In("SELECT * FROM `submissions` WHERE `class_id` IN (?)", classIDs)
 	if err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -679,7 +668,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 	var allSubmissions []Subs
 	query = h.DB.Rebind(query)
 	if err := h.DB.Select(&allSubmissions, query, args...); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -706,7 +695,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 		for _, class := range classes {
 			// var submissionsCount int
 			// if err := h.DB.Get(&submissionsCount, "SELECT COUNT(*) FROM `submissions` WHERE `class_id` = ?", class.ID); err != nil {
-			// 	c.Logger().Error(err)
+
 			// 	return c.NoContent(http.StatusInternalServerError)
 			// }
 			submissionsCount := submissionsCounts[class.ID]
@@ -734,7 +723,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 
 			// var myScore sql.NullInt64
 			// if err := h.DB.Get(&myScore, "SELECT `submissions`.`score` FROM `submissions` WHERE `user_id` = ? AND `class_id` = ?", userID, class.ID); err != nil && err != sql.ErrNoRows {
-			// 	c.Logger().Error(err)
+
 			// 	return c.NoContent(http.StatusInternalServerError)
 			// } else if err == sql.ErrNoRows || !myScore.Valid {
 			// 	classScores = append(classScores, ClassScore{
@@ -768,7 +757,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 			" WHERE `courses`.`id` = ?" +
 			" GROUP BY `users`.`id`"
 		if err := h.DB.Select(&totals, query, course.ID); err != nil {
-			c.Logger().Error(err)
+
 			return c.NoContent(http.StatusInternalServerError)
 		}
 
@@ -812,7 +801,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 		" WHERE `users`.`type` = ?" +
 		" GROUP BY `users`.`id`"
 	if err := h.DB.Select(&gpas, query, StatusClosed, StatusClosed, Student); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -910,14 +899,14 @@ func (h *handlers) SearchCourses(c echo.Context) error {
 	// 結果が0件の時は空配列を返却
 	res := make([]GetCourseDetailResponse, 0)
 	if err := h.DB.Select(&res, query+condition, args...); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	var links []string
 	linkURL, err := url.Parse(c.Request().URL.Path + "?" + c.Request().URL.RawQuery)
 	if err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -962,7 +951,7 @@ type AddCourseResponse struct {
 func (h *handlers) AddCourse(c echo.Context) error {
 	userID, _, _, err := getUserInfo(c)
 	if err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -985,7 +974,7 @@ func (h *handlers) AddCourse(c echo.Context) error {
 		if mysqlErr, ok := err.(*mysql.MySQLError); ok && mysqlErr.Number == uint16(mysqlErrNumDuplicateEntry) {
 			var course Course
 			if err := h.DB.Get(&course, "SELECT * FROM `courses` WHERE `code` = ?", req.Code); err != nil {
-				c.Logger().Error(err)
+
 				return c.NoContent(http.StatusInternalServerError)
 			}
 			if req.Type != course.Type || req.Name != course.Name || req.Description != course.Description || req.Credit != int(course.Credit) || req.Period != int(course.Period) || req.DayOfWeek != course.DayOfWeek || req.Keywords != course.Keywords {
@@ -993,7 +982,7 @@ func (h *handlers) AddCourse(c echo.Context) error {
 			}
 			return c.JSON(http.StatusCreated, AddCourseResponse{ID: course.ID})
 		}
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -1025,7 +1014,7 @@ func (h *handlers) GetCourseDetail(c echo.Context) error {
 		" JOIN `users` ON `courses`.`teacher_id` = `users`.`id`" +
 		" WHERE `courses`.`id` = ?"
 	if err := h.DB.Get(&res, query, courseID); err != nil && err != sql.ErrNoRows {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	} else if err == sql.ErrNoRows {
 		return c.String(http.StatusNotFound, "No such course.")
@@ -1049,14 +1038,14 @@ func (h *handlers) SetCourseStatus(c echo.Context) error {
 
 	tx, err := h.DB.Beginx()
 	if err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	defer tx.Rollback()
 
 	var count int
 	if err := tx.Get(&count, "SELECT COUNT(*) FROM `courses` WHERE `id` = ? FOR UPDATE", courseID); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	if count == 0 {
@@ -1064,12 +1053,12 @@ func (h *handlers) SetCourseStatus(c echo.Context) error {
 	}
 
 	if _, err := tx.Exec("UPDATE `courses` SET `status` = ? WHERE `id` = ?", req.Status, courseID); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	if err := tx.Commit(); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -1099,7 +1088,7 @@ type GetClassResponse struct {
 func (h *handlers) GetClasses(c echo.Context) error {
 	userID, _, _, err := getUserInfo(c)
 	if err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -1107,14 +1096,14 @@ func (h *handlers) GetClasses(c echo.Context) error {
 
 	tx, err := h.DB.Beginx()
 	if err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	defer tx.Rollback()
 
 	var count int
 	if err := tx.Get(&count, "SELECT COUNT(*) FROM `courses` WHERE `id` = ?", courseID); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	if count == 0 {
@@ -1128,12 +1117,12 @@ func (h *handlers) GetClasses(c echo.Context) error {
 		" WHERE `classes`.`course_id` = ?" +
 		" ORDER BY `classes`.`part`"
 	if err := tx.Select(&classes, query, userID, courseID); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	if err := tx.Commit(); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -1174,14 +1163,14 @@ func (h *handlers) AddClass(c echo.Context) error {
 
 	tx, err := h.DB.Beginx()
 	if err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	defer tx.Rollback()
 
 	var course Course
 	if err := tx.Get(&course, "SELECT * FROM `courses` WHERE `id` = ? FOR SHARE", courseID); err != nil && err != sql.ErrNoRows {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	} else if err == sql.ErrNoRows {
 		return c.String(http.StatusNotFound, "No such course.")
@@ -1197,7 +1186,7 @@ func (h *handlers) AddClass(c echo.Context) error {
 		if mysqlErr, ok := err.(*mysql.MySQLError); ok && mysqlErr.Number == uint16(mysqlErrNumDuplicateEntry) {
 			var class Class
 			if err := h.DB.Get(&class, "SELECT * FROM `classes` WHERE `course_id` = ? AND `part` = ?", courseID, req.Part); err != nil {
-				c.Logger().Error(err)
+
 				return c.NoContent(http.StatusInternalServerError)
 			}
 			if req.Title != class.Title || req.Description != class.Description {
@@ -1205,12 +1194,12 @@ func (h *handlers) AddClass(c echo.Context) error {
 			}
 			return c.JSON(http.StatusCreated, AddClassResponse{ClassID: class.ID})
 		}
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	if err := tx.Commit(); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -1221,7 +1210,7 @@ func (h *handlers) AddClass(c echo.Context) error {
 func (h *handlers) SubmitAssignment(c echo.Context) error {
 	userID, _, _, err := getUserInfo(c)
 	if err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -1230,14 +1219,14 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 
 	tx, err := h.DB.Beginx()
 	if err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	defer tx.Rollback()
 
 	var status CourseStatus
 	if err := tx.Get(&status, "SELECT `status` FROM `courses` WHERE `id` = ? FOR SHARE", courseID); err != nil && err != sql.ErrNoRows {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	} else if err == sql.ErrNoRows {
 		return c.String(http.StatusNotFound, "No such course.")
@@ -1248,7 +1237,7 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 
 	var registrationCount int
 	if err := tx.Get(&registrationCount, "SELECT COUNT(*) FROM `registrations` WHERE `user_id` = ? AND `course_id` = ?", userID, courseID); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	if registrationCount == 0 {
@@ -1257,7 +1246,7 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 
 	var submissionClosed bool
 	if err := tx.Get(&submissionClosed, "SELECT `submission_closed` FROM `classes` WHERE `id` = ? FOR SHARE", classID); err != nil && err != sql.ErrNoRows {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	} else if err == sql.ErrNoRows {
 		return c.String(http.StatusNotFound, "No such class.")
@@ -1273,24 +1262,24 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 	defer file.Close()
 
 	if _, err := tx.Exec("INSERT INTO `submissions` (`user_id`, `class_id`, `file_name`) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE `file_name` = VALUES(`file_name`)", userID, classID, header.Filename); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	data, err := io.ReadAll(file)
 	if err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	dst := AssignmentsDirectory + classID + "-" + userID + ".pdf"
 	if err := os.WriteFile(dst, data, 0o666); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	if err := tx.Commit(); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -1308,14 +1297,14 @@ func (h *handlers) RegisterScores(c echo.Context) error {
 
 	tx, err := h.DB.Beginx()
 	if err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	defer tx.Rollback()
 
 	var submissionClosed bool
 	if err := tx.Get(&submissionClosed, "SELECT `submission_closed` FROM `classes` WHERE `id` = ? FOR SHARE", classID); err != nil && err != sql.ErrNoRows {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	} else if err == sql.ErrNoRows {
 		return c.String(http.StatusNotFound, "No such class.")
@@ -1332,13 +1321,13 @@ func (h *handlers) RegisterScores(c echo.Context) error {
 
 	for _, score := range req {
 		if _, err := tx.Exec("UPDATE `submissions` JOIN `users` ON `users`.`id` = `submissions`.`user_id` SET `score` = ? WHERE `users`.`code` = ? AND `class_id` = ?", score.Score, score.UserCode, classID); err != nil {
-			c.Logger().Error(err)
+
 			return c.NoContent(http.StatusInternalServerError)
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -1357,14 +1346,14 @@ func (h *handlers) DownloadSubmittedAssignments(c echo.Context) error {
 
 	tx, err := h.DB.Beginx()
 	if err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	defer tx.Rollback()
 
 	var classCount int
 	if err := tx.Get(&classCount, "SELECT COUNT(*) FROM `classes` WHERE `id` = ? FOR UPDATE", classID); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	if classCount == 0 {
@@ -1376,23 +1365,23 @@ func (h *handlers) DownloadSubmittedAssignments(c echo.Context) error {
 		" JOIN `users` ON `users`.`id` = `submissions`.`user_id`" +
 		" WHERE `class_id` = ?"
 	if err := tx.Select(&submissions, query, classID); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	zipFilePath := AssignmentsDirectory + classID + ".zip"
 	if err := createSubmissionsZip(zipFilePath, classID, submissions); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	if _, err := tx.Exec("UPDATE `classes` SET `submission_closed` = true WHERE `id` = ?", classID); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	if err := tx.Commit(); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -1442,13 +1431,13 @@ type GetAnnouncementsResponse struct {
 func (h *handlers) GetAnnouncementList(c echo.Context) error {
 	userID, _, _, err := getUserInfo(c)
 	if err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	tx, err := h.DB.Beginx()
 	if err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	defer tx.Rollback()
@@ -1488,25 +1477,25 @@ func (h *handlers) GetAnnouncementList(c echo.Context) error {
 	args = append(args, limit+1, offset)
 
 	if err := tx.Select(&announcements, query, args...); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	var unreadCount int
 	if err := tx.Get(&unreadCount, "SELECT COUNT(*) FROM `unread_announcements` WHERE `user_id` = ? AND NOT `is_deleted`", userID); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	if err := tx.Commit(); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	var links []string
 	linkURL, err := url.Parse(c.Request().URL.Path + "?" + c.Request().URL.RawQuery)
 	if err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -1561,14 +1550,14 @@ func (h *handlers) AddAnnouncement(c echo.Context) error {
 
 	tx, err := h.DB.Beginx()
 	if err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	defer tx.Rollback()
 
 	var count int
 	if err := tx.Get(&count, "SELECT COUNT(*) FROM `courses` WHERE `id` = ?", req.CourseID); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	if count == 0 {
@@ -1581,7 +1570,7 @@ func (h *handlers) AddAnnouncement(c echo.Context) error {
 		if mysqlErr, ok := err.(*mysql.MySQLError); ok && mysqlErr.Number == uint16(mysqlErrNumDuplicateEntry) {
 			var announcement Announcement
 			if err := h.DB.Get(&announcement, "SELECT * FROM `announcements` WHERE `id` = ?", req.ID); err != nil {
-				c.Logger().Error(err)
+
 				return c.NoContent(http.StatusInternalServerError)
 			}
 			if announcement.CourseID != req.CourseID || announcement.Title != req.Title || announcement.Message != req.Message {
@@ -1589,7 +1578,7 @@ func (h *handlers) AddAnnouncement(c echo.Context) error {
 			}
 			return c.NoContent(http.StatusCreated)
 		}
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -1598,7 +1587,7 @@ func (h *handlers) AddAnnouncement(c echo.Context) error {
 		" JOIN `registrations` ON `users`.`id` = `registrations`.`user_id`" +
 		" WHERE `registrations`.`course_id` = ?"
 	if err := tx.Select(&targets, query, req.CourseID); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -1616,13 +1605,13 @@ func (h *handlers) AddAnnouncement(c echo.Context) error {
 
 	if len(insertArgs) > 0 {
 		if _, err := tx.NamedExec(insertQuery, insertArgs); err != nil {
-			c.Logger().Error(err)
+
 			return c.NoContent(http.StatusInternalServerError)
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -1642,7 +1631,7 @@ type AnnouncementDetail struct {
 func (h *handlers) GetAnnouncementDetail(c echo.Context) error {
 	userID, _, _, err := getUserInfo(c)
 	if err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
@@ -1650,7 +1639,7 @@ func (h *handlers) GetAnnouncementDetail(c echo.Context) error {
 
 	tx, err := h.DB.Beginx()
 	if err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	defer tx.Rollback()
@@ -1663,7 +1652,7 @@ func (h *handlers) GetAnnouncementDetail(c echo.Context) error {
 		" WHERE `announcements`.`id` = ?" +
 		" AND `unread_announcements`.`user_id` = ?"
 	if err := tx.Get(&announcement, query, announcementID, userID); err != nil && err != sql.ErrNoRows {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	} else if err == sql.ErrNoRows {
 		return c.String(http.StatusNotFound, "No such announcement.")
@@ -1671,7 +1660,7 @@ func (h *handlers) GetAnnouncementDetail(c echo.Context) error {
 
 	var registrationCount int
 	if err := tx.Get(&registrationCount, "SELECT COUNT(*) FROM `registrations` WHERE `course_id` = ? AND `user_id` = ?", announcement.CourseID, userID); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	if registrationCount == 0 {
@@ -1679,12 +1668,12 @@ func (h *handlers) GetAnnouncementDetail(c echo.Context) error {
 	}
 
 	if _, err := tx.Exec("UPDATE `unread_announcements` SET `is_deleted` = true WHERE `announcement_id` = ? AND `user_id` = ?", announcementID, userID); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	if err := tx.Commit(); err != nil {
-		c.Logger().Error(err)
+
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
