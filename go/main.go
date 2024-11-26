@@ -636,21 +636,46 @@ func (h *handlers) GetGrades(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
+	courseIDs := make([]string, len(registeredCourses))
+	for i, course := range registeredCourses {
+		courseIDs[i] = course.ID
+	}
+
+	query, args, err := sqlx.In("SELECT * FROM `classes` WHERE `course_id` IN (?) ORDER BY `part` DESC", courseIDs)
+	if err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	var allClasses []Class
+	if err := h.DB.Select(&allClasses, query, args...); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	// 順に取っていくので ORDER BY が考慮される (はず)
+	classesMap := make(map[string][]Class)
+	for _, class := range allClasses {
+		classesMap[class.CourseID] = append(classesMap[class.CourseID], class)
+	}
+
 	// 科目毎の成績計算処理
 	courseResults := make([]CourseResult, 0, len(registeredCourses))
 	myGPA := 0.0
 	myCredits := 0
 	for _, course := range registeredCourses {
 		// 講義一覧の取得
-		var classes []Class
-		query = "SELECT *" +
-			" FROM `classes`" +
-			" WHERE `course_id` = ?" +
-			" ORDER BY `part` DESC"
-		if err := h.DB.Select(&classes, query, course.ID); err != nil {
-			c.Logger().Error(err)
-			return c.NoContent(http.StatusInternalServerError)
-		}
+		// var classes []Class
+		// query = "SELECT *" +
+		// 	" FROM `classes`" +
+		// 	" WHERE `course_id` = ?" +
+		// 	" ORDER BY `part` DESC"
+		// if err := h.DB.Select(&classes, query, course.ID); err != nil {
+		// 	c.Logger().Error(err)
+		// 	return c.NoContent(http.StatusInternalServerError)
+		// }
+
+		classes := classesMap[course.ID]
 
 		// 講義毎の成績計算処理
 		classScores := make([]ClassScore, 0, len(classes))
