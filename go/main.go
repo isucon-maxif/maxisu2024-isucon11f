@@ -447,15 +447,78 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 	}
 	defer tx.Rollback()
 
+	courseIDs := make([]string, len(req))
+	for i, courseReq := range req {
+		courseIDs[i] = courseReq.ID
+	}
+
+	var courses []Course
+	query, args, err := sqlx.In("SELECT * FROM `courses` WHERE `id` IN (?) FOR SHARE", courseIDs)
+	if err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	query = tx.Rebind(query)
+	if err := tx.Select(&courses, query, args...); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	var existingRegistrations []struct {
+		CourseID string `db:"course_id"`
+	}
+	query, args, err = sqlx.In("SELECT `course_id` FROM `registrations` WHERE `course_id` IN (?) AND `user_id` = ?", courseIDs, userID)
+	if err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	query = tx.Rebind(query)
+	if err := tx.Select(&existingRegistrations, query, args...); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	// mapping...
+	registeredCourseIDs := make(map[string]struct{}, len(existingRegistrations))
+	for _, reg := range existingRegistrations {
+		registeredCourseIDs[reg.CourseID] = struct{}{}
+	}
+
 	var errors RegisterCoursesErrorResponse
 	var newlyAdded []Course
+	courseMap := make(map[string]Course)
+	for _, course := range courses {
+		courseMap[course.ID] = course
+	}
+
 	for _, courseReq := range req {
-		courseID := courseReq.ID
-		var course Course
-		if err := tx.Get(&course, "SELECT * FROM `courses` WHERE `id` = ? FOR SHARE", courseID); err != nil && err != sql.ErrNoRows {
-			c.Logger().Error(err)
-			return c.NoContent(http.StatusInternalServerError)
-		} else if err == sql.ErrNoRows {
+		// courseID := courseReq.ID
+		// var course Course
+		// if err := tx.Get(&course, "SELECT * FROM `courses` WHERE `id` = ? FOR SHARE", courseID); err != nil && err != sql.ErrNoRows {
+		// 	c.Logger().Error(err)
+		// 	return c.NoContent(http.StatusInternalServerError)
+		// } else if err == sql.ErrNoRows {
+		// 	errors.CourseNotFound = append(errors.CourseNotFound, courseReq.ID)
+		// 	continue
+		// }
+		//
+		// if course.Status != StatusRegistration {
+		// 	errors.NotRegistrableStatus = append(errors.NotRegistrableStatus, course.ID)
+		// 	continue
+		// }
+		//
+		// // すでに履修登録済みの科目は無視する
+		// var count int
+		// if err := tx.Get(&count, "SELECT COUNT(*) FROM `registrations` WHERE `course_id` = ? AND `user_id` = ?", course.ID, userID); err != nil {
+		// 	c.Logger().Error(err)
+		// 	return c.NoContent(http.StatusInternalServerError)
+		// }
+		// if count > 0 {
+		// 	continue
+		// }
+
+		course, exists := courseMap[courseReq.ID]
+		if !exists {
 			errors.CourseNotFound = append(errors.CourseNotFound, courseReq.ID)
 			continue
 		}
@@ -465,13 +528,7 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 			continue
 		}
 
-		// すでに履修登録済みの科目は無視する
-		var count int
-		if err := tx.Get(&count, "SELECT COUNT(*) FROM `registrations` WHERE `course_id` = ? AND `user_id` = ?", course.ID, userID); err != nil {
-			c.Logger().Error(err)
-			return c.NoContent(http.StatusInternalServerError)
-		}
-		if count > 0 {
+		if _, alreadyRegistered := registeredCourseIDs[course.ID]; alreadyRegistered {
 			continue
 		}
 
@@ -479,7 +536,7 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 	}
 
 	var alreadyRegistered []Course
-	query := "SELECT `courses`.*" +
+	query = "SELECT `courses`.*" +
 		" FROM `courses`" +
 		" JOIN `registrations` ON `courses`.`id` = `registrations`.`course_id`" +
 		" WHERE `courses`.`status` != ? AND `registrations`.`user_id` = ?"
@@ -1157,7 +1214,7 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 	}
 
 	dst := AssignmentsDirectory + classID + "-" + userID + ".pdf"
-	if err := os.WriteFile(dst, data, 0666); err != nil {
+	if err := os.WriteFile(dst, data, 0o666); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
