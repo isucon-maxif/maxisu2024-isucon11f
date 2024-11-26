@@ -648,15 +648,16 @@ func (h *handlers) GetGrades(c echo.Context) error {
 	}
 
 	var allClasses []Class
+	query = h.DB.Rebind(query)
 	if err := h.DB.Select(&allClasses, query, args...); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	// 順に取っていくので ORDER BY が考慮される (はず)
-	classesMap := make(map[string][]Class)
+	courseToClassesMap := make(map[string][]Class)
 	for _, class := range allClasses {
-		classesMap[class.CourseID] = append(classesMap[class.CourseID], class)
+		courseToClassesMap[class.CourseID] = append(courseToClassesMap[class.CourseID], class)
 	}
 
 	// 科目毎の成績計算処理
@@ -675,7 +676,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 		// 	return c.NoContent(http.StatusInternalServerError)
 		// }
 
-		classes := classesMap[course.ID]
+		classes := courseToClassesMap[course.ID]
 
 		// 講義毎の成績計算処理
 		classScores := make([]ClassScore, 0, len(classes))
